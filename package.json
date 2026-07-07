@@ -1,0 +1,44 @@
+{
+  "name": "git-worktree-commands",
+  "displayName": "Git Worktree Commands",
+  "description": "通过 VS Code 命令面板创建和删除 git worktree。",
+  "publisher": "chenzongli",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.127.0"
+  },
+  "scripts": {
+    "test": "node --test worktreeService.test.js",
+    "package:vsix": "npx -y @vscode/vsce package --allow-missing-repository",
+    "install:vsix": "code --install-extension \"$npm_package_name-$npm_package_version.vsix\"",
+    "reinstall:vsix": "code --install-extension \"$npm_package_name-$npm_package_version.vsix\" --force"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "gitWorktree.create",
+        "title": "创建 Worktree",
+        "category": "Git Worktree"
+      },
+      {
+        "command": "gitWorktree.delete",
+        "title": "删除 Worktree",
+        "category": "Git Worktree"
+      }
+    ],
+    "configuration": {
+      "title": "Git Worktree",
+      "properties": {
+        "gitWorktree.baseBranch": {
+          "type": "string",
+          "default": "dev",
+          "description": "创建新 worktree 时使用的基础分支。"
+        }
+      }
+    }
+  }
+}
