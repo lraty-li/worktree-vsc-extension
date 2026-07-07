@@ -22,7 +22,8 @@ class GitWorktreeService {
   }
 
   async createManagedWorktree(workingDirectory, options) {
-    const repositoryRoot = await this.resolveRepositoryRoot(workingDirectory);
+    const workspaceContext = await this.resolveWorkspaceContext(workingDirectory);
+    const repositoryRoot = workspaceContext.hostRepositoryRoot;
     const branch = options.branch.trim();
     const baseBranch = options.baseBranch.trim();
 
@@ -50,12 +51,14 @@ class GitWorktreeService {
   }
 
   async listManagedWorktrees(workingDirectory) {
-    const repositoryRoot = await this.resolveRepositoryRoot(workingDirectory);
+    const workspaceContext = await this.resolveWorkspaceContext(workingDirectory);
+    const repositoryRoot = workspaceContext.hostRepositoryRoot;
     return this.listManagedWorktreesFromRepositoryRoot(repositoryRoot);
   }
 
   async deleteManagedWorktree(workingDirectory, options) {
-    const repositoryRoot = await this.resolveRepositoryRoot(workingDirectory);
+    const workspaceContext = await this.resolveWorkspaceContext(workingDirectory);
+    const repositoryRoot = workspaceContext.hostRepositoryRoot;
     const worktrees = await this.listManagedWorktreesFromRepositoryRoot(repositoryRoot);
     const target = worktrees.find((worktree) => worktree.branch === options.branch);
 
@@ -94,6 +97,32 @@ class GitWorktreeService {
   async resolveRepositoryRoot(workingDirectory) {
     const result = await this.runGit(workingDirectory, ['rev-parse', '--show-toplevel']);
     return result.stdout.trim();
+  }
+
+  async resolveWorkspaceContext(workingDirectory) {
+    const result = await this.runGit(workingDirectory, [
+      'rev-parse',
+      '--show-toplevel',
+      '--absolute-git-dir',
+      '--git-common-dir'
+    ]);
+    const [repositoryRootLine = '', absoluteGitDirLine = '', commonGitDirLine = ''] = result.stdout
+      .split(/\r?\n/)
+      .filter((line) => line.length > 0);
+
+    const repositoryRoot = repositoryRootLine.trim();
+    const absoluteGitDir = absoluteGitDirLine.trim();
+    const commonGitDir = path.resolve(workingDirectory, commonGitDirLine.trim());
+    const isMainWorktree = path.resolve(absoluteGitDir) === commonGitDir;
+    const hostRepositoryRoot = isMainWorktree ? repositoryRoot : path.dirname(commonGitDir);
+
+    return {
+      repositoryRoot,
+      hostRepositoryRoot,
+      absoluteGitDir: path.resolve(absoluteGitDir),
+      commonGitDir,
+      isMainWorktree
+    };
   }
 
   async listManagedWorktreesFromRepositoryRoot(repositoryRoot) {

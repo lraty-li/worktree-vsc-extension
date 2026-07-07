@@ -23,8 +23,8 @@ function activate(context) {
 function deactivate() {}
 
 async function createWorktree() {
-  const workspaceFolder = await pickWorkspaceFolder();
-  if (!workspaceFolder) {
+  const repositoryTarget = await pickRepositoryTarget();
+  if (!repositoryTarget) {
     return;
   }
 
@@ -42,7 +42,7 @@ async function createWorktree() {
     return;
   }
 
-  const baseBranch = getBaseBranch(workspaceFolder);
+  const baseBranch = getBaseBranch(repositoryTarget.workspaceFolder);
 
   try {
     const createdWorktree = await vscode.window.withProgress(
@@ -51,14 +51,14 @@ async function createWorktree() {
         title: `创建 worktree: ${branch.trim()}`
       },
       async () =>
-        service.createManagedWorktree(workspaceFolder.uri.fsPath, {
+        service.createManagedWorktree(repositoryTarget.repositoryPath, {
           branch,
           baseBranch
         })
     );
 
     addWorkspaceFolderIfNeeded(createdWorktree.path);
-    openTerminalForWorktreeIfNeeded(workspaceFolder, createdWorktree);
+    openTerminalForWorktreeIfNeeded(repositoryTarget.workspaceFolder, createdWorktree);
     void vscode.window.showInformationMessage(`已创建 worktree: ${createdWorktree.branch}`);
   } catch (error) {
     showOperationError('创建 worktree 失败', error);
@@ -66,13 +66,13 @@ async function createWorktree() {
 }
 
 async function deleteWorktree() {
-  const workspaceFolder = await pickWorkspaceFolder();
-  if (!workspaceFolder) {
+  const repositoryTarget = await pickRepositoryTarget();
+  if (!repositoryTarget) {
     return;
   }
 
   try {
-    const worktrees = await service.listManagedWorktrees(workspaceFolder.uri.fsPath);
+    const worktrees = await service.listManagedWorktrees(repositoryTarget.repositoryPath);
     if (worktrees.length === 0) {
       void vscode.window.showInformationMessage('当前没有可删除的受管 worktree。');
       return;
@@ -115,7 +115,7 @@ async function deleteWorktree() {
         title: `删除 worktree: ${picked.worktree.branch}`
       },
       async () =>
-        service.deleteManagedWorktree(workspaceFolder.uri.fsPath, {
+        service.deleteManagedWorktree(repositoryTarget.repositoryPath, {
           branch: picked.worktree.branch
         })
     );
@@ -123,49 +123,106 @@ async function deleteWorktree() {
     removeWorkspaceFolderIfPresent(deleteResult.path);
 
     if (deleteResult.warningMessage) {
-      void vscode.window.showWarningMessage(deleteResult.warningMessage);
+      showTransientStatusMessage(deleteResult.warningMessage);
       return;
     }
 
-    void vscode.window.showInformationMessage(`已删除 worktree: ${deleteResult.branch}`);
+    showTransientStatusMessage(`已删除 worktree: ${deleteResult.branch}`);
   } catch (error) {
     showOperationError('删除 worktree 失败', error);
   }
 }
 
-async function pickWorkspaceFolder() {
+async function pickRepositoryTarget() {
   const folders = vscode.workspace.workspaceFolders ?? [];
   if (folders.length === 0) {
     void vscode.window.showErrorMessage('当前没有打开任何 workspace folder。');
     return undefined;
   }
 
-  if (folders.length === 1) {
-    return folders[0];
+  const repositoryEntries = await Promise.all(
+    folders.map(async (workspaceFolder) => {
+      try {
+        const workspaceContext = await service.resolveWorkspaceContext(workspaceFolder.uri.fsPath);
+        return {
+          workspaceFolder,
+          workspaceContext
+        };
+      } catch {
+        return undefined;
+      }
+    })
+  );
+  const resolvedEntries = repositoryEntries.filter((entry) => entry !== undefined);
+  if (resolvedEntries.length === 0) {
+    void vscode.window.showErrorMessage('当前 workspace 中没有可用的 git 仓库目录。');
+    return undefined;
   }
 
   const activeUri = vscode.window.activeTextEditor?.document.uri;
-  if (activeUri) {
-    const activeFolder = vscode.workspace.getWorkspaceFolder(activeUri);
-    if (activeFolder) {
-      return activeFolder;
+  const activeFolderPath = activeUri
+    ? vscode.workspace.getWorkspaceFolder(activeUri)?.uri.fsPath
+    : undefined;
+  const repositoryTargets = buildRepositoryTargets(resolvedEntries);
+
+  if (repositoryTargets.length === 1) {
+    return repositoryTargets[0];
+  }
+
+  if (activeFolderPath) {
+    const activeTarget = resolvedEntries
+      .find((entry) => entry.workspaceFolder.uri.fsPath === activeFolderPath)
+      ?.workspaceContext.hostRepositoryRoot;
+    if (activeTarget) {
+      const matchedTarget = repositoryTargets.find(
+        (repositoryTarget) => repositoryTarget.repositoryPath === activeTarget
+      );
+      if (matchedTarget) {
+        return matchedTarget;
+      }
     }
   }
 
   const picked = await vscode.window.showQuickPick(
-    folders.map((folder) => ({
-      label: folder.name,
-      description: folder.uri.fsPath,
-      folder
+    repositoryTargets.map((repositoryTarget) => ({
+      label: repositoryTarget.workspaceFolder.name,
+      description: repositoryTarget.repositoryPath,
+      repositoryTarget
     })),
     {
       title: 'Git Worktree: 选择工作区目录',
-      placeHolder: '选择要操作的仓库目录',
+      placeHolder: '选择要操作的宿主仓库目录',
       ignoreFocusOut: true
     }
   );
 
-  return picked?.folder;
+  return picked?.repositoryTarget;
+}
+
+function buildRepositoryTargets(repositoryEntries) {
+  const repositoryTargetMap = new Map();
+
+  for (const repositoryEntry of repositoryEntries) {
+    const repositoryPath = repositoryEntry.workspaceContext.hostRepositoryRoot;
+    const existingTarget = repositoryTargetMap.get(repositoryPath);
+
+    if (!existingTarget) {
+      repositoryTargetMap.set(repositoryPath, {
+        workspaceFolder: repositoryEntry.workspaceFolder,
+        repositoryPath
+      });
+      continue;
+    }
+
+    if (repositoryEntry.workspaceContext.isMainWorktree) {
+      repositoryTargetMap.set(repositoryPath, {
+        workspaceFolder: repositoryEntry.workspaceFolder,
+        repositoryPath
+      });
+    }
+  }
+
+  return [...repositoryTargetMap.values()];
 }
 
 function getBaseBranch(workspaceFolder) {
@@ -190,6 +247,10 @@ function openTerminalForWorktreeIfNeeded(workspaceFolder, createdWorktree) {
     cwd: createdWorktree.path
   });
   terminal.show(true);
+}
+
+function showTransientStatusMessage(message) {
+  vscode.window.setStatusBarMessage(message, 5000);
 }
 
 function showOperationError(title, error) {

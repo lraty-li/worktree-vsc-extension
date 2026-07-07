@@ -57,7 +57,10 @@ test('createManagedWorktree 执行预期的 git 流程', async () => {
       executedCommands.push({ command, args, cwd: options.cwd });
 
       if (args[0] === 'rev-parse') {
-        return { stdout: '/repo/picslab\n', stderr: '' };
+        return {
+          stdout: ['/repo/picslab', '/repo/picslab/.git', '.git', ''].join('\n'),
+          stderr: ''
+        };
       }
 
       if (args[0] === 'check-ref-format') {
@@ -106,7 +109,7 @@ test('createManagedWorktree 执行预期的 git 流程', async () => {
   assert.deepEqual(executedCommands, [
     {
       command: 'git',
-      args: ['rev-parse', '--show-toplevel'],
+      args: ['rev-parse', '--show-toplevel', '--absolute-git-dir', '--git-common-dir'],
       cwd: '/repo/picslab'
     },
     {
@@ -146,12 +149,19 @@ test('deleteManagedWorktree 在分支删除失败时返回 warning', async () =>
       executedCommands.push({ command, args, cwd: options.cwd });
 
       if (args[0] === 'rev-parse') {
-        return { stdout: '/repo/picslab\n', stderr: '' };
+        return {
+          stdout: ['/repo/picslab', '/repo/picslab/.git', '.git', ''].join('\n'),
+          stderr: ''
+        };
       }
 
       if (args[0] === 'worktree' && args[1] === 'list') {
         return {
           stdout: [
+            'worktree /repo/picslab',
+            'HEAD 000',
+            'branch refs/heads/dev',
+            '',
             'worktree /repo/feature/avatar',
             'HEAD 111',
             'branch refs/heads/feature/avatar',
@@ -187,7 +197,7 @@ test('deleteManagedWorktree 在分支删除失败时返回 warning', async () =>
   assert.deepEqual(executedCommands, [
     {
       command: 'git',
-      args: ['rev-parse', '--show-toplevel'],
+      args: ['rev-parse', '--show-toplevel', '--absolute-git-dir', '--git-common-dir'],
       cwd: '/repo/picslab'
     },
     {
@@ -218,4 +228,91 @@ test('deleteManagedWorktree 在分支删除失败时返回 warning', async () =>
     branchDeleted: false,
     warningMessage: 'worktree 已删除，但本地分支未删除。请检查是否已合并: feature/avatar'
   });
+});
+
+test('resolveWorkspaceContext 能识别链接 worktree 并回到宿主仓库', async () => {
+  const service = new GitWorktreeService({
+    execFileAsync: async (command, args, options) => {
+      assert.equal(command, 'git');
+      assert.deepEqual(args, ['rev-parse', '--show-toplevel', '--absolute-git-dir', '--git-common-dir']);
+      assert.equal(options.cwd, '/repo/feature/avatar');
+      return {
+        stdout: ['/repo/feature/avatar', '/repo/app/.git/worktrees/feature-avatar', '/repo/app/.git', ''].join(
+          '\n'
+        ),
+        stderr: ''
+      };
+    }
+  });
+
+  const workspaceContext = await service.resolveWorkspaceContext('/repo/feature/avatar');
+
+  assert.deepEqual(workspaceContext, {
+    repositoryRoot: '/repo/feature/avatar',
+    hostRepositoryRoot: '/repo/app',
+    absoluteGitDir: '/repo/app/.git/worktrees/feature-avatar',
+    commonGitDir: '/repo/app/.git',
+    isMainWorktree: false
+  });
+});
+
+test('listManagedWorktrees 从链接 worktree 触发时使用宿主仓库根目录', async () => {
+  const executedCommands = [];
+
+  const service = new GitWorktreeService({
+    execFileAsync: async (command, args, options) => {
+      executedCommands.push({ command, args, cwd: options.cwd });
+
+      if (args[0] === 'rev-parse') {
+        return {
+          stdout: ['/repo/feature/avatar', '/repo/app/.git/worktrees/feature-avatar', '/repo/app/.git', ''].join(
+            '\n'
+          ),
+          stderr: ''
+        };
+      }
+
+      if (args[0] === 'worktree' && args[1] === 'list') {
+        assert.equal(options.cwd, '/repo/app');
+        return {
+          stdout: [
+            'worktree /repo/app',
+            'HEAD 111',
+            'branch refs/heads/dev',
+            '',
+            'worktree /repo/feature/avatar',
+            'HEAD 222',
+            'branch refs/heads/feature/avatar',
+            ''
+          ].join('\n'),
+          stderr: ''
+        };
+      }
+
+      throw new Error(`unexpected git args: ${args.join(' ')}`);
+    }
+  });
+
+  const worktrees = await service.listManagedWorktrees('/repo/feature/avatar');
+
+  assert.deepEqual(executedCommands, [
+    {
+      command: 'git',
+      args: ['rev-parse', '--show-toplevel', '--absolute-git-dir', '--git-common-dir'],
+      cwd: '/repo/feature/avatar'
+    },
+    {
+      command: 'git',
+      args: ['worktree', 'list', '--porcelain'],
+      cwd: '/repo/app'
+    }
+  ]);
+
+  assert.deepEqual(worktrees, [
+    {
+      branch: 'feature/avatar',
+      path: '/repo/feature/avatar',
+      repositoryRoot: '/repo/app'
+    }
+  ]);
 });
