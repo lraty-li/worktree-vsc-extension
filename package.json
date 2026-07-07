@@ -3,7 +3,7 @@
   "displayName": "Git Worktree Commands",
   "description": "通过 VS Code 命令面板创建和删除 git worktree。",
   "publisher": "chenzongli",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "engines": {
     "vscode": "^1.127.0"
   },
@@ -37,6 +37,11 @@
           "type": "string",
           "default": "dev",
           "description": "创建新 worktree 时使用的基础分支。"
+        },
+        "gitWorktree.openTerminalAfterCreate": {
+          "type": "boolean",
+          "default": true,
+          "description": "创建 worktree 成功后，是否自动新开终端并切到该目录。"
         }
       }
     }

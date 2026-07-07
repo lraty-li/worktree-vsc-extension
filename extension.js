@@ -58,6 +58,7 @@ async function createWorktree() {
     );
 
     addWorkspaceFolderIfNeeded(createdWorktree.path);
+    openTerminalForWorktreeIfNeeded(workspaceFolder, createdWorktree);
     void vscode.window.showInformationMessage(`已创建 worktree: ${createdWorktree.branch}`);
   } catch (error) {
     showOperationError('创建 worktree 失败', error);
@@ -171,6 +172,24 @@ function getBaseBranch(workspaceFolder) {
   return vscode.workspace
     .getConfiguration('gitWorktree', workspaceFolder)
     .get('baseBranch', 'dev');
+}
+
+function shouldOpenTerminalAfterCreate(workspaceFolder) {
+  return vscode.workspace
+    .getConfiguration('gitWorktree', workspaceFolder)
+    .get('openTerminalAfterCreate', true);
+}
+
+function openTerminalForWorktreeIfNeeded(workspaceFolder, createdWorktree) {
+  if (!shouldOpenTerminalAfterCreate(workspaceFolder)) {
+    return;
+  }
+
+  const terminal = vscode.window.createTerminal({
+    name: `worktree:${createdWorktree.branch}`,
+    cwd: createdWorktree.path
+  });
+  terminal.show(true);
 }
 
 function showOperationError(title, error) {
