@@ -29,7 +29,7 @@ async function createWorktree() {
   }
 
   const branch = await vscode.window.showInputBox({
-    title: 'Git Worktree: 创建',
+    title: 'Git Worktree: Create',
     prompt: '输入新的分支名',
     placeHolder: '例如 feature/avatar',
     ignoreFocusOut: true,
@@ -48,7 +48,7 @@ async function createWorktree() {
     const createdWorktree = await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: `创建 worktree: ${branch.trim()}`
+        title: `Create worktree: ${branch.trim()}`
       },
       async () =>
         service.createManagedWorktree(repositoryTarget.repositoryPath, {
@@ -86,7 +86,7 @@ async function deleteWorktree() {
         worktree
       })),
       {
-        title: 'Git Worktree: 删除',
+        title: 'Git Worktree: Delete',
         placeHolder: '选择要删除的 worktree',
         ignoreFocusOut: true
       }
@@ -102,17 +102,17 @@ async function deleteWorktree() {
         modal: true,
         detail: picked.worktree.path
       },
-      '删除'
+      'Delete'
     );
 
-    if (confirm !== '删除') {
+    if (confirm !== 'Delete') {
       return;
     }
 
     const deleteResult = await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: `删除 worktree: ${picked.worktree.branch}`
+        title: `Delete worktree: ${picked.worktree.branch}`
       },
       async () =>
         service.deleteManagedWorktree(repositoryTarget.repositoryPath, {
@@ -190,7 +190,7 @@ async function pickRepositoryTarget() {
       repositoryTarget
     })),
     {
-      title: 'Git Worktree: 选择工作区目录',
+      title: 'Git Worktree: Select Repository',
       placeHolder: '选择要操作的宿主仓库目录',
       ignoreFocusOut: true
     }
