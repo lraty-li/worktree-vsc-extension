@@ -2,10 +2,7 @@
 
 const path = require('path');
 const vscode = require('vscode');
-const {
-  GitWorktreeService,
-  WorktreeOperationError
-} = require('./worktreeService');
+const { GitWorktreeService } = require('./worktreeService');
 
 const service = new GitWorktreeService();
 
@@ -28,15 +25,7 @@ async function createWorktree() {
     return;
   }
 
-  const branch = await vscode.window.showInputBox({
-    title: 'Git Worktree: Create',
-    prompt: '输入新的分支名',
-    placeHolder: '例如 feature/avatar',
-    ignoreFocusOut: true,
-    validateInput(value) {
-      return value.trim().length > 0 ? null : '分支名不能为空';
-    }
-  });
+  const branch = await promptBranchName();
 
   if (!branch) {
     return;
@@ -45,23 +34,15 @@ async function createWorktree() {
   const baseBranch = getBaseBranch(repositoryTarget.workspaceFolder);
 
   try {
-    const createdWorktree = await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: `Create worktree: ${branch.trim()}`
-      },
-      async () =>
-        service.createManagedWorktree(repositoryTarget.repositoryPath, {
-          branch,
-          baseBranch
-        })
-    );
+    const createdWorktree = await service.createManagedWorktree(repositoryTarget.repositoryPath, {
+      branch,
+      baseBranch
+    });
 
     addWorkspaceFolderIfNeeded(createdWorktree.path);
     openTerminalForWorktreeIfNeeded(repositoryTarget.workspaceFolder, createdWorktree);
-    void vscode.window.showInformationMessage(`已创建 worktree: ${createdWorktree.branch}`);
   } catch (error) {
-    showOperationError('创建 worktree 失败', error);
+    logOperationIssue('创建 worktree 失败', error);
   }
 }
 
@@ -74,69 +55,36 @@ async function deleteWorktree() {
   try {
     const worktrees = await service.listManagedWorktrees(repositoryTarget.repositoryPath);
     if (worktrees.length === 0) {
-      void vscode.window.showInformationMessage('当前没有可删除的受管 worktree。');
       return;
     }
 
-    const picked = await vscode.window.showQuickPick(
-      worktrees.map((worktree) => ({
-        label: worktree.branch,
-        description: path.relative(path.dirname(worktree.repositoryRoot), worktree.path),
-        detail: worktree.path,
-        worktree
-      })),
-      {
-        title: 'Git Worktree: Delete',
-        placeHolder: '选择要删除的 worktree',
-        ignoreFocusOut: true
-      }
-    );
+    const picked = await promptManagedWorktree(worktrees);
 
     if (!picked) {
       return;
     }
 
-    const confirm = await vscode.window.showWarningMessage(
-      `删除 worktree "${picked.worktree.branch}"，并尝试删除对应本地分支？`,
-      {
-        modal: true,
-        detail: picked.worktree.path
-      },
-      'Delete'
-    );
-
-    if (confirm !== 'Delete') {
+    if (!(await confirmDeleteWorktree(picked.worktree))) {
       return;
     }
 
-    const deleteResult = await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: `Delete worktree: ${picked.worktree.branch}`
-      },
-      async () =>
-        service.deleteManagedWorktree(repositoryTarget.repositoryPath, {
-          branch: picked.worktree.branch
-        })
-    );
+    const deleteResult = await service.deleteManagedWorktree(repositoryTarget.repositoryPath, {
+      branch: picked.worktree.branch
+    });
 
     removeWorkspaceFolderIfPresent(deleteResult.path);
 
     if (deleteResult.warningMessage) {
-      showTransientStatusMessage(deleteResult.warningMessage);
-      return;
+      logOperationIssue(deleteResult.warningMessage);
     }
-
-    showTransientStatusMessage(`已删除 worktree: ${deleteResult.branch}`);
   } catch (error) {
-    showOperationError('删除 worktree 失败', error);
+    logOperationIssue('删除 worktree 失败', error);
   }
 }
 
 async function pickRepositoryTarget() {
   const folders = vscode.workspace.workspaceFolders ?? [];
   if (folders.length === 0) {
-    void vscode.window.showErrorMessage('当前没有打开任何 workspace folder。');
     return undefined;
   }
 
@@ -155,7 +103,6 @@ async function pickRepositoryTarget() {
   );
   const resolvedEntries = repositoryEntries.filter((entry) => entry !== undefined);
   if (resolvedEntries.length === 0) {
-    void vscode.window.showErrorMessage('当前 workspace 中没有可用的 git 仓库目录。');
     return undefined;
   }
 
@@ -225,6 +172,58 @@ function buildRepositoryTargets(repositoryEntries) {
   return [...repositoryTargetMap.values()];
 }
 
+function promptBranchName() {
+  return vscode.window.showInputBox({
+    title: 'Git Worktree: Create',
+    prompt: '输入新的分支名',
+    placeHolder: '例如 feature/avatar',
+    ignoreFocusOut: true,
+    validateInput(value) {
+      return value.trim().length > 0 ? null : '分支名不能为空';
+    }
+  });
+}
+
+function promptManagedWorktree(worktrees) {
+  return vscode.window.showQuickPick(
+    worktrees.map((worktree) => ({
+      label: worktree.branch,
+      description: path.relative(path.dirname(worktree.repositoryRoot), worktree.path),
+      detail: worktree.path,
+      worktree
+    })),
+    {
+      title: 'Git Worktree: Delete',
+      placeHolder: '选择要删除的 worktree',
+      ignoreFocusOut: true
+    }
+  );
+}
+
+async function confirmDeleteWorktree(worktree) {
+  const decision = await vscode.window.showQuickPick(
+    [
+      {
+        label: '确认删除',
+        description: worktree.branch,
+        detail: worktree.path,
+        confirmed: true
+      },
+      {
+        label: '取消',
+        confirmed: false
+      }
+    ],
+    {
+      title: 'Git Worktree: Confirm Delete',
+      placeHolder: `删除 ${worktree.branch}，并尝试删除对应本地分支`,
+      ignoreFocusOut: true
+    }
+  );
+
+  return decision?.confirmed === true;
+}
+
 function getBaseBranch(workspaceFolder) {
   return vscode.workspace
     .getConfiguration('gitWorktree', workspaceFolder)
@@ -243,22 +242,16 @@ function openTerminalForWorktreeIfNeeded(workspaceFolder, createdWorktree) {
   }
 
   const terminal = vscode.window.createTerminal({
-    name: `worktree:${createdWorktree.branch}`,
+    name: createdWorktree.branch,
     cwd: createdWorktree.path
   });
   terminal.show(true);
 }
 
-function showTransientStatusMessage(message) {
-  vscode.window.setStatusBarMessage(message, 5000);
-}
-
-function showOperationError(title, error) {
-  const message =
-    error instanceof WorktreeOperationError || error instanceof Error
-      ? error.message
-      : String(error);
-  void vscode.window.showErrorMessage(`${title}: ${message}`);
+function logOperationIssue(title, error) {
+  const suffix = error instanceof Error ? error.message : error ? String(error) : '';
+  const message = suffix ? `${title}: ${suffix}` : title;
+  console.warn(`[git-worktree] ${message}`);
 }
 
 function addWorkspaceFolderIfNeeded(folderPath) {

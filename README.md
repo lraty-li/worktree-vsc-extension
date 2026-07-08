@@ -33,6 +33,6 @@
 
 说明：
 
-- 打包产物文件名默认是 `git-worktree-commands-0.0.3.vsix`
+- 打包产物文件名默认是 `git-worktree-commands-0.0.4.vsix`
 - `package:vsix` 使用 `npx -y @vscode/vsce package --allow-missing-repository`
 - 如果你后续要发布到 Marketplace，建议再补 `LICENSE`、`repository`、`homepage` 等元数据
