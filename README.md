@@ -2,8 +2,8 @@
 
 提供两个 VS Code 命令：
 
-- `Git Worktree: 创建`
-- `Git Worktree: 删除`
+- `Git Worktree: Create`
+- `Git Worktree: Delete`
 
 扩展内部直接执行 git worktree 命令，不依赖项目里的 shell 脚本：
 
@@ -33,6 +33,6 @@
 
 说明：
 
-- 打包产物文件名默认是 `git-worktree-commands-0.0.4.vsix`
+- 打包产物文件名默认是 `git-worktree-commands-0.0.5.vsix`
 - `package:vsix` 使用 `npx -y @vscode/vsce package --allow-missing-repository`
 - 如果你后续要发布到 Marketplace，建议再补 `LICENSE`、`repository`、`homepage` 等元数据
