@@ -75,10 +75,10 @@ async function deleteWorktree() {
     removeWorkspaceFolderIfPresent(deleteResult.path);
 
     if (deleteResult.warningMessage) {
-      logOperationIssue(deleteResult.warningMessage);
+      showTransientDeleteWarning(deleteResult.warningMessage);
     }
   } catch (error) {
-    logOperationIssue('删除 worktree 失败', error);
+    showTransientDeleteError(error);
   }
 }
 
@@ -249,9 +249,24 @@ function openTerminalForWorktreeIfNeeded(workspaceFolder, createdWorktree) {
 }
 
 function logOperationIssue(title, error) {
-  const suffix = error instanceof Error ? error.message : error ? String(error) : '';
-  const message = suffix ? `${title}: ${suffix}` : title;
+  const message = formatOperationIssue(title, error);
   console.warn(`[git-worktree] ${message}`);
+}
+
+function showTransientDeleteWarning(message) {
+  logOperationIssue(message);
+  void vscode.window.showWarningMessage(message, { modal: false });
+}
+
+function showTransientDeleteError(error) {
+  const message = formatOperationIssue('删除 worktree 失败', error);
+  logOperationIssue(message);
+  void vscode.window.showErrorMessage(message, { modal: false });
+}
+
+function formatOperationIssue(title, error) {
+  const suffix = error instanceof Error ? error.message : error ? String(error) : '';
+  return suffix ? `${title}: ${suffix}` : title;
 }
 
 function addWorkspaceFolderIfNeeded(folderPath) {
