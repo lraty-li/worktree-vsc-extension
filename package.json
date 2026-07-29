@@ -3,12 +3,12 @@
   "displayName": "Git Worktree Commands",
   "description": "通过 VS Code 命令面板创建和删除 git worktree。",
   "publisher": "chenzongli",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "engines": {
     "vscode": "^1.127.0"
   },
   "scripts": {
-    "test": "node --test worktreeService.test.js",
+    "test": "node --test worktreeService.test.js workspaceIntegration.test.js",
     "package:vsix": "npx -y @vscode/vsce package --allow-missing-repository",
     "install:vsix": "code --install-extension \"$npm_package_name-$npm_package_version.vsix\"",
     "reinstall:vsix": "code --install-extension \"$npm_package_name-$npm_package_version.vsix\" --force"

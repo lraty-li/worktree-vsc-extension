@@ -3,8 +3,14 @@
 const path = require('path');
 const vscode = require('vscode');
 const { GitWorktreeService } = require('./worktreeService');
+const { WorktreeWorkspaceIntegration } = require('./workspaceIntegration');
 
 const service = new GitWorktreeService();
+const workspaceIntegration = new WorktreeWorkspaceIntegration({
+  workspace: vscode.workspace,
+  commands: vscode.commands,
+  uri: vscode.Uri
+});
 
 function activate(context) {
   context.subscriptions.push(
@@ -33,16 +39,23 @@ async function createWorktree() {
 
   const baseBranch = getBaseBranch(repositoryTarget.workspaceFolder);
 
+  let createdWorktree;
   try {
-    const createdWorktree = await service.createManagedWorktree(repositoryTarget.repositoryPath, {
+    createdWorktree = await service.createManagedWorktree(repositoryTarget.repositoryPath, {
       branch,
       baseBranch
     });
-
-    addWorkspaceFolderIfNeeded(createdWorktree.path);
-    openTerminalForWorktreeIfNeeded(repositoryTarget.workspaceFolder, createdWorktree);
   } catch (error) {
     logOperationIssue('创建 worktree 失败', error);
+    return;
+  }
+
+  try {
+    await workspaceIntegration.integrateCreatedWorktree(createdWorktree.path, {
+      openTerminal: shouldOpenTerminalAfterCreate(repositoryTarget.workspaceFolder)
+    });
+  } catch (error) {
+    logOperationIssue('worktree 已创建，但工作区集成失败', error);
   }
 }
 
@@ -72,7 +85,7 @@ async function deleteWorktree() {
       branch: picked.worktree.branch
     });
 
-    removeWorkspaceFolderIfPresent(deleteResult.path);
+    workspaceIntegration.removeWorkspaceFolderIfPresent(deleteResult.path);
 
     if (deleteResult.warningMessage) {
       showTransientDeleteWarning(deleteResult.warningMessage);
@@ -236,18 +249,6 @@ function shouldOpenTerminalAfterCreate(workspaceFolder) {
     .get('openTerminalAfterCreate', true);
 }
 
-function openTerminalForWorktreeIfNeeded(workspaceFolder, createdWorktree) {
-  if (!shouldOpenTerminalAfterCreate(workspaceFolder)) {
-    return;
-  }
-
-  const terminal = vscode.window.createTerminal({
-    name: createdWorktree.branch,
-    cwd: createdWorktree.path
-  });
-  terminal.show(true);
-}
-
 function logOperationIssue(title, error) {
   const message = formatOperationIssue(title, error);
   console.warn(`[git-worktree] ${message}`);
@@ -267,31 +268,6 @@ function showTransientDeleteError(error) {
 function formatOperationIssue(title, error) {
   const suffix = error instanceof Error ? error.message : error ? String(error) : '';
   return suffix ? `${title}: ${suffix}` : title;
-}
-
-function addWorkspaceFolderIfNeeded(folderPath) {
-  const targetPath = path.resolve(folderPath);
-  const folders = vscode.workspace.workspaceFolders ?? [];
-  const alreadyOpen = folders.some((folder) => path.resolve(folder.uri.fsPath) === targetPath);
-  if (alreadyOpen) {
-    return;
-  }
-
-  vscode.workspace.updateWorkspaceFolders(folders.length, 0, {
-    uri: vscode.Uri.file(targetPath),
-    name: path.basename(targetPath)
-  });
-}
-
-function removeWorkspaceFolderIfPresent(folderPath) {
-  const targetPath = path.resolve(folderPath);
-  const folders = vscode.workspace.workspaceFolders ?? [];
-  const index = folders.findIndex((folder) => path.resolve(folder.uri.fsPath) === targetPath);
-  if (index < 0) {
-    return;
-  }
-
-  vscode.workspace.updateWorkspaceFolders(index, 1);
 }
 
 module.exports = {

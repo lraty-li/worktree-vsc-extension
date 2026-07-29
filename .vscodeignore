@@ -1,5 +1,6 @@
 .git/**
+.code-review-graph/**
 .gitignore
 node_modules/**
 *.vsix
-worktreeService.test.js
+*.test.js
