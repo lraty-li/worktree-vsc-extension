@@ -12,18 +12,40 @@ const workspaceIntegration = new WorktreeWorkspaceIntegration({
   uri: vscode.Uri
 });
 
+class WorktreeCommandError extends Error {
+  constructor(title, cause) {
+    super(errorMessage(cause));
+    this.name = 'WorktreeCommandError';
+    this.title = title;
+    this.cause = cause;
+  }
+}
+
 function activate(context) {
   context.subscriptions.push(
     vscode.commands.registerCommand('gitWorktree.create', async () => {
-      await createWorktree();
+      await runCommand(createWorktree, '创建 worktree 失败');
     }),
     vscode.commands.registerCommand('gitWorktree.delete', async () => {
-      await deleteWorktree();
+      await runCommand(deleteWorktree, '删除 worktree 失败');
     })
   );
 }
 
 function deactivate() {}
+
+async function runCommand(command, fallbackErrorTitle) {
+  try {
+    await command();
+  } catch (error) {
+    if (error instanceof WorktreeCommandError) {
+      showOperationError(error.title, error.cause);
+      return;
+    }
+
+    showOperationError(fallbackErrorTitle, error);
+  }
+}
 
 async function createWorktree() {
   const repositoryTarget = await pickRepositoryTarget();
@@ -38,24 +60,17 @@ async function createWorktree() {
   }
 
   const baseBranch = getBaseBranch(repositoryTarget.workspaceFolder);
-
-  let createdWorktree;
-  try {
-    createdWorktree = await service.createManagedWorktree(repositoryTarget.repositoryPath, {
-      branch,
-      baseBranch
-    });
-  } catch (error) {
-    logOperationIssue('创建 worktree 失败', error);
-    return;
-  }
+  const createdWorktree = await service.createManagedWorktree(repositoryTarget.repositoryPath, {
+    branch,
+    baseBranch
+  });
 
   try {
     await workspaceIntegration.integrateCreatedWorktree(createdWorktree.path, {
       openTerminal: shouldOpenTerminalAfterCreate(repositoryTarget.workspaceFolder)
     });
   } catch (error) {
-    logOperationIssue('worktree 已创建，但工作区集成失败', error);
+    throw new WorktreeCommandError('worktree 已创建，但工作区集成失败', error);
   }
 }
 
@@ -65,43 +80,39 @@ async function deleteWorktree() {
     return;
   }
 
-  try {
-    const worktrees = await service.listManagedWorktrees(repositoryTarget.repositoryPath);
-    if (worktrees.length === 0) {
-      return;
-    }
+  const worktrees = await service.listManagedWorktrees(repositoryTarget.repositoryPath);
+  if (worktrees.length === 0) {
+    return;
+  }
 
-    const picked = await promptManagedWorktree(worktrees);
+  const picked = await promptManagedWorktree(worktrees);
 
-    if (!picked) {
-      return;
-    }
+  if (!picked) {
+    return;
+  }
 
-    if (!(await confirmDeleteWorktree(picked.worktree))) {
-      return;
-    }
+  if (!(await confirmDeleteWorktree(picked.worktree))) {
+    return;
+  }
 
-    const deleteResult = await service.deleteManagedWorktree(repositoryTarget.repositoryPath, {
-      branch: picked.worktree.branch
-    });
+  const deleteResult = await service.deleteManagedWorktree(repositoryTarget.repositoryPath, {
+    branch: picked.worktree.branch
+  });
 
-    workspaceIntegration.removeWorkspaceFolderIfPresent(deleteResult.path);
+  workspaceIntegration.removeWorkspaceFolderIfPresent(deleteResult.path);
 
-    if (deleteResult.warningMessage) {
-      showTransientDeleteWarning(deleteResult.warningMessage);
-    }
-  } catch (error) {
-    showTransientDeleteError(error);
+  if (deleteResult.warningMessage) {
+    showTransientDeleteWarning(deleteResult.warningMessage);
   }
 }
 
 async function pickRepositoryTarget() {
   const folders = vscode.workspace.workspaceFolders ?? [];
   if (folders.length === 0) {
-    return undefined;
+    throw new Error('当前没有打开任何工作区目录。');
   }
 
-  const repositoryEntries = await Promise.all(
+  const repositoryResolutionResults = await Promise.all(
     folders.map(async (workspaceFolder) => {
       try {
         const workspaceContext = await service.resolveWorkspaceContext(workspaceFolder.uri.fsPath);
@@ -109,14 +120,25 @@ async function pickRepositoryTarget() {
           workspaceFolder,
           workspaceContext
         };
-      } catch {
-        return undefined;
+      } catch (error) {
+        return {
+          workspaceFolder,
+          error
+        };
       }
     })
   );
-  const resolvedEntries = repositoryEntries.filter((entry) => entry !== undefined);
+  const resolvedEntries = repositoryResolutionResults.filter(
+    (result) => result.workspaceContext !== undefined
+  );
   if (resolvedEntries.length === 0) {
-    return undefined;
+    const details = repositoryResolutionResults
+      .map(
+        (result) =>
+          `${result.workspaceFolder.name} (${result.workspaceFolder.uri.fsPath}): ${errorMessage(result.error)}`
+      )
+      .join('；');
+    throw new Error(`当前工作区中没有可用的 Git 仓库目录。${details ? ` ${details}` : ''}`);
   }
 
   const activeUri = vscode.window.activeTextEditor?.document.uri;
@@ -254,20 +276,28 @@ function logOperationIssue(title, error) {
   console.warn(`[git-worktree] ${message}`);
 }
 
+function showOperationError(title, error) {
+  const message = formatOperationIssue(title, error);
+  logOperationIssue(title, error);
+  void vscode.window.showErrorMessage(message, { modal: false });
+}
+
 function showTransientDeleteWarning(message) {
   logOperationIssue(message);
   void vscode.window.showWarningMessage(message, { modal: false });
 }
 
-function showTransientDeleteError(error) {
-  const message = formatOperationIssue('删除 worktree 失败', error);
-  logOperationIssue(message);
-  void vscode.window.showErrorMessage(message, { modal: false });
+function formatOperationIssue(title, error) {
+  const suffix = errorMessage(error);
+  return suffix ? `${title}: ${suffix}` : title;
 }
 
-function formatOperationIssue(title, error) {
-  const suffix = error instanceof Error ? error.message : error ? String(error) : '';
-  return suffix ? `${title}: ${suffix}` : title;
+function errorMessage(error) {
+  if (error instanceof Error) {
+    return error.message || error.name;
+  }
+
+  return error ? String(error) : '';
 }
 
 module.exports = {
