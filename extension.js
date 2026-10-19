@@ -104,6 +104,7 @@ async function deleteWorktree() {
 
   const worktrees = await service.listManagedWorktrees(repositoryTarget.repositoryPath);
   if (worktrees.length === 0) {
+    await vscode.window.showInformationMessage('当前仓库没有可删除的 worktree。');
     return;
   }
 
@@ -118,7 +119,7 @@ async function deleteWorktree() {
   }
 
   const deleteResult = await service.deleteManagedWorktree(repositoryTarget.repositoryPath, {
-    branch: picked.worktree.branch
+    path: picked.worktree.path
   });
 
   workspaceIntegration.removeWorkspaceFolderIfPresent(deleteResult.path);
@@ -262,7 +263,7 @@ async function promptBaseBranch(configuredBaseBranch, localBranches) {
 function promptManagedWorktree(worktrees) {
   return vscode.window.showQuickPick(
     worktrees.map((worktree) => ({
-      label: worktree.branch,
+      label: worktree.branch ?? '分离 HEAD',
       description: path.relative(path.dirname(worktree.repositoryRoot), worktree.path),
       detail: worktree.path,
       worktree
@@ -280,7 +281,7 @@ async function confirmDeleteWorktree(worktree) {
     [
       {
         label: '确认删除',
-        description: worktree.branch,
+        description: worktree.branch ?? '分离 HEAD',
         detail: worktree.path,
         confirmed: true
       },
@@ -291,7 +292,9 @@ async function confirmDeleteWorktree(worktree) {
     ],
     {
       title: 'Git Worktree: Confirm Delete',
-      placeHolder: `删除 ${worktree.branch}，并尝试删除对应本地分支`,
+      placeHolder: worktree.branch
+        ? `删除 ${worktree.branch}，并尝试删除对应本地分支`
+        : '删除此 worktree（分离 HEAD，无需删除分支）',
       ignoreFocusOut: true
     }
   );

@@ -76,15 +76,15 @@ class GitWorktreeService {
     const workspaceContext = await this.resolveWorkspaceContext(workingDirectory);
     const repositoryRoot = workspaceContext.hostRepositoryRoot;
     const worktrees = await this.listManagedWorktreesFromRepositoryRoot(repositoryRoot);
-    const target = worktrees.find((worktree) => worktree.branch === options.branch);
+    const target = worktrees.find((worktree) => path.resolve(worktree.path) === path.resolve(options.path));
 
     if (!target) {
-      throw new WorktreeOperationError(`managed worktree does not exist for branch: ${options.branch}`);
+      throw new WorktreeOperationError(`managed worktree does not exist at path: ${options.path}`);
     }
 
     await this.runGit(repositoryRoot, ['worktree', 'remove', target.path]);
 
-    const branchExists = await this.localBranchExists(repositoryRoot, target.branch);
+    const branchExists = target.branch && await this.localBranchExists(repositoryRoot, target.branch);
     if (!branchExists) {
       return {
         branch: target.branch,
@@ -220,13 +220,13 @@ function parseManagedWorktrees(porcelainOutput, repositoryRoot) {
   const lines = porcelainOutput.split(/\r?\n/);
   const records = [];
   let currentPath = '';
-  let currentBranch = '';
+  let currentBranch;
 
   for (const line of lines) {
     if (line.length === 0) {
       pushManagedRecord(records, repositoryRoot, currentPath, currentBranch);
       currentPath = '';
-      currentBranch = '';
+      currentBranch = undefined;
       continue;
     }
 
@@ -245,11 +245,11 @@ function parseManagedWorktrees(porcelainOutput, repositoryRoot) {
 }
 
 function pushManagedRecord(records, repositoryRoot, worktreePath, branch) {
-  if (worktreePath.length === 0 || branch.length === 0) {
+  if (worktreePath.length === 0) {
     return;
   }
 
-  if (path.resolve(worktreePath) !== path.resolve(worktreePathForBranch(repositoryRoot, branch))) {
+  if (path.resolve(worktreePath) === path.resolve(repositoryRoot)) {
     return;
   }
 
