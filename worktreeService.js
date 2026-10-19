@@ -56,6 +56,22 @@ class GitWorktreeService {
     return this.listManagedWorktreesFromRepositoryRoot(repositoryRoot);
   }
 
+  async listLocalBranches(workingDirectory) {
+    const workspaceContext = await this.resolveWorkspaceContext(workingDirectory);
+    const repositoryRoot = workspaceContext.hostRepositoryRoot;
+    const result = await this.runGit(repositoryRoot, [
+      'for-each-ref',
+      '--format=%(refname:short)',
+      '--sort=refname',
+      'refs/heads'
+    ]);
+
+    return result.stdout
+      .split(/\r?\n/)
+      .map((branch) => branch.trim())
+      .filter((branch) => branch.length > 0);
+  }
+
   async deleteManagedWorktree(workingDirectory, options) {
     const workspaceContext = await this.resolveWorkspaceContext(workingDirectory);
     const repositoryRoot = workspaceContext.hostRepositoryRoot;

@@ -36,7 +36,7 @@
         "gitWorktree.baseBranch": {
           "type": "string",
           "default": "dev",
-          "description": "创建新 worktree 时使用的基础分支。"
+          "description": "创建新 worktree 时优先使用的基础分支；不存在时会要求选择本地分支。"
         },
         "gitWorktree.openTerminalAfterCreate": {
           "type": "boolean",

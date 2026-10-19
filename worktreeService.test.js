@@ -141,6 +141,46 @@ test('createManagedWorktree 执行预期的 git 流程', async () => {
   });
 });
 
+test('listLocalBranches 从宿主仓库返回按名称排序的本地分支', async () => {
+  const service = new GitWorktreeService({
+    execFileAsync: async (command, args, options) => {
+      assert.equal(command, 'git');
+
+      if (args[0] === 'rev-parse') {
+        assert.deepEqual(args, [
+          'rev-parse',
+          '--show-toplevel',
+          '--absolute-git-dir',
+          '--git-common-dir'
+        ]);
+        assert.equal(options.cwd, '/repo/feature/avatar');
+        return {
+          stdout: ['/repo/feature/avatar', '/repo/app/.git/worktrees/feature-avatar', '/repo/app/.git', ''].join(
+            '\n'
+          ),
+          stderr: ''
+        };
+      }
+
+      assert.deepEqual(args, [
+        'for-each-ref',
+        '--format=%(refname:short)',
+        '--sort=refname',
+        'refs/heads'
+      ]);
+      assert.equal(options.cwd, '/repo/app');
+      return {
+        stdout: ['feature/avatar', 'main', 'release/1.0', ''].join('\n'),
+        stderr: ''
+      };
+    }
+  });
+
+  const branches = await service.listLocalBranches('/repo/feature/avatar');
+
+  assert.deepEqual(branches, ['feature/avatar', 'main', 'release/1.0']);
+});
+
 test('deleteManagedWorktree 在分支删除失败时返回 warning', async () => {
   const executedCommands = [];
 

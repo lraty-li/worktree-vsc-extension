@@ -53,13 +53,17 @@ async function createWorktree() {
     return;
   }
 
+  const baseBranch = await resolveBaseBranch(repositoryTarget);
+  if (!baseBranch) {
+    return;
+  }
+
   const branch = await promptBranchName();
 
   if (!branch) {
     return;
   }
 
-  const baseBranch = getBaseBranch(repositoryTarget.workspaceFolder);
   const createdWorktree = await service.createManagedWorktree(repositoryTarget.repositoryPath, {
     branch,
     baseBranch
@@ -72,6 +76,24 @@ async function createWorktree() {
   } catch (error) {
     throw new WorktreeCommandError('worktree 已创建，但工作区集成失败', error);
   }
+}
+
+async function resolveBaseBranch(repositoryTarget) {
+  const configuredBaseBranch = getConfiguredBaseBranch(repositoryTarget.workspaceFolder).trim();
+  const localBranches = await service.listLocalBranches(repositoryTarget.repositoryPath);
+
+  if (localBranches.includes(configuredBaseBranch)) {
+    return configuredBaseBranch;
+  }
+
+  if (localBranches.length === 0) {
+    const configuredBranchDescription = configuredBaseBranch || '未配置';
+    throw new Error(
+      `配置的基础分支不存在，且仓库中没有可选的本地分支: ${configuredBranchDescription}`
+    );
+  }
+
+  return promptBaseBranch(configuredBaseBranch, localBranches);
 }
 
 async function deleteWorktree() {
@@ -219,6 +241,24 @@ function promptBranchName() {
   });
 }
 
+async function promptBaseBranch(configuredBaseBranch, localBranches) {
+  const picked = await vscode.window.showQuickPick(
+    localBranches.map((branch) => ({
+      label: branch,
+      branch
+    })),
+    {
+      title: 'Git Worktree: Select Base Branch',
+      placeHolder: configuredBaseBranch
+        ? `配置的基础分支 "${configuredBaseBranch}" 不存在，请选择本地分支`
+        : '未配置基础分支，请选择本地分支',
+      ignoreFocusOut: true
+    }
+  );
+
+  return picked?.branch;
+}
+
 function promptManagedWorktree(worktrees) {
   return vscode.window.showQuickPick(
     worktrees.map((worktree) => ({
@@ -259,7 +299,7 @@ async function confirmDeleteWorktree(worktree) {
   return decision?.confirmed === true;
 }
 
-function getBaseBranch(workspaceFolder) {
+function getConfiguredBaseBranch(workspaceFolder) {
   return vscode.workspace
     .getConfiguration('gitWorktree', workspaceFolder)
     .get('baseBranch', 'dev');
